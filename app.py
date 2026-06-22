@@ -152,7 +152,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**Filters**")
-    obligations_all = data["obligations"]
+    obligations_all = data if isinstance(data, list) else data["obligations"]
     cats = sorted({o["category"] for o in obligations_all})
     parties = sorted({o["responsible_party"] for o in obligations_all})
 
