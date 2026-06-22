@@ -173,8 +173,9 @@ if "done" not in st.session_state:
 # --------------------------------------------------------------------------- #
 st.markdown('<p class="idp-title">Intelligent Document Processing Agent</p>', unsafe_allow_html=True)
 st.markdown(
-f'<p class="idp-sub">Sample MSA — Apex Properties Group (demo).pdf &nbsp;&nbsp; '
-f'1,184 pages · {len(obligations_all)} obligations extracted',
+    f'<p class="idp-sub">Sample MSA — Apex Properties Group (demo).pdf &nbsp;&nbsp; '
+    f'1,184 pages · {len(obligations_all)} obligations extracted</p>',
+    unsafe_allow_html=True,
 )
 st.warning(
     "**Sandbox mode — Claude (sponsored).** Cleared for synthetic / sample contracts only. "
