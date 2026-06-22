@@ -1,353 +1,338 @@
 """
-app.py — Streamlit UI for the IDP Agent
-JLL Hackathon 2026
+IDP Agent — Streamlit UI
+========================
+Upload an MSA  ->  browse a categorized, source-linked compliance checklist  ->  export.
 
 Run:
+    pip install streamlit pandas openpyxl
     streamlit run app.py
 
-Modes:
-  - Demo mode (no API key): loads demo_obligations.json instantly
-  - Live mode (ANTHROPIC_API_KEY set): upload a PDF, run full pipeline
+Two modes
+---------
+DEMO MODE  (default): loads demo_obligations.json so the UI is fully clickable with
+                      zero setup. Use this for judging — it can't be broken by a live
+                      API hiccup. Replace the JSON with your own cached pipeline output.
+LIVE MODE  : upload a PDF; the app calls run_pipeline() (wire this to your parser +
+             idp_extraction). Falls back gracefully with a clear message if not yet wired.
 
-Features:
-  - Upload MSA PDF → extract obligations
-  - Filter by Priority / Category / Party / Needs Review
-  - Click any row to see source clause + verbatim snippet
-  - Export to Excel or CSV
-  - Governance guard: blocks real client data from sandbox endpoint
+Author: Daniel Salas Castro — JLL Hackathon 2026
 """
 
-from __future__ import annotations
-
+import io
 import json
-import os
 from pathlib import Path
-from typing import List, Optional
 
+import pandas as pd
 import streamlit as st
 
-# ---------------------------------------------------------------------------
-# Page config — must be first Streamlit call
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
+# Constants
+# --------------------------------------------------------------------------- #
+DEMO_FILE = Path(__file__).parent / "demo_obligations.json"
 
-st.set_page_config(
-    page_title="IDP Agent · JLL Hackathon 2026",
-    page_icon="📄",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+NAVY = "#1F3864"
+BLUE = "#2E75B6"
+ACCENT = "#C55A11"
 
-# ---------------------------------------------------------------------------
-# Local imports (after page config)
-# ---------------------------------------------------------------------------
+PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+PRIORITY_COLOR = {"High": "#C0392B", "Medium": "#B9770E", "Low": "#5B7DB1"}
 
-from idp_extraction import Obligation, Priority, Category, Party
-from reduce_obligations import reduce, build_checklist, to_dataframe, export_excel
-
-# ---------------------------------------------------------------------------
-# Constants & paths
-# ---------------------------------------------------------------------------
-
-DEMO_JSON_PATH = Path(__file__).parent / "demo_obligations.json"
-PRIORITY_COLORS = {
-    Priority.HIGH.value:   "🔴",
-    Priority.MEDIUM.value: "🟡",
-    Priority.LOW.value:    "🟢",
+CATEGORY_ICON = {
+    "Financial": "💰", "Insurance": "🛡️", "Reporting": "📊",
+    "Service Level (SLA)": "⚡", "Compliance & Regulatory": "⚖️", "Notice": "🔔",
+    "Term & Renewal": "🔄", "Termination": "🚪", "Indemnity & Liability": "📑",
+    "Confidentiality & Data": "🔒",
 }
-REVIEW_BADGE = "⚠️ Review"
+
+st.set_page_config(page_title="IDP Agent — MSA Obligations", page_icon="📄", layout="wide")
+
+# --------------------------------------------------------------------------- #
+# Styling
+# --------------------------------------------------------------------------- #
+st.markdown(f"""
+<style>
+  .block-container {{ padding-top: 1.6rem; }}
+  .idp-title {{ color:{NAVY}; font-size:1.9rem; font-weight:800; margin-bottom:0; }}
+  .idp-sub   {{ color:#666; font-size:0.95rem; margin-top:.15rem; }}
+  .pill {{ display:inline-block; padding:2px 10px; border-radius:11px;
+           font-size:0.72rem; font-weight:700; color:#fff; }}
+  .snippet {{ background:#F5F7FB; border-left:3px solid {BLUE}; padding:10px 14px;
+              border-radius:4px; font-size:0.9rem; color:#333; font-style:italic; }}
+  .src {{ color:#555; font-size:0.82rem; }}
+  div[data-testid="stMetricValue"] {{ font-size:1.7rem; }}
+</style>
+""", unsafe_allow_html=True)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _load_demo_obligations() -> List[Obligation]:
-    """Load cached demo obligations from JSON."""
-    if not DEMO_JSON_PATH.exists():
-        st.error(f"Demo file not found: {DEMO_JSON_PATH}. Run the self-test to generate it.")
-        return []
-    with open(DEMO_JSON_PATH) as f:
-        raw = json.load(f)
-    return [Obligation.model_validate(item) for item in raw]
+def pill(text, color):
+    return f'<span class="pill" style="background:{color}">{text}</span>'
 
 
-def _run_live_pipeline(pdf_bytes: bytes, pdf_name: str) -> List[Obligation]:
-    """Run the full parse → extract → reduce pipeline on an uploaded PDF."""
-    import tempfile
-    from parse_chunk import parse_and_chunk
+# --------------------------------------------------------------------------- #
+# Data loading
+# --------------------------------------------------------------------------- #
+@st.cache_data
+def load_demo():
+    with open(DEMO_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def run_pipeline(pdf_bytes: bytes, filename: str, progress=None) -> dict:
+    """LIVE MODE: PDF bytes -> the same dict shape as demo_obligations.json.
+
+        parse_and_chunk  ->  extract_all (map)  ->  reduce  ->  build_checklist
+
+    Requires ANTHROPIC_API_KEY in the environment. Raises with a clear message
+    if the key or a dependency is missing, so the sidebar can fall back to demo.
+    """
+    import os
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        raise RuntimeError("ANTHROPIC_API_KEY not set — set it to run live extraction.")
+
+    import anthropic
+    from parse_chunk import parse_and_chunk, count_pages
     from idp_extraction import extract_all
-    from providers import get_provider, assert_data_allowed
+    from reduce_obligations import reduce_obligations, build_checklist
+    from providers import ClaudeProvider, assert_data_allowed
 
-    provider = get_provider("claude")
+    def tick(msg, frac):
+        if progress:
+            progress.progress(frac, text=msg)
+
+    # SANDBOX GOVERNANCE: the sponsored Claude endpoint is NOT cleared for real
+    # client MSAs. This app runs in sandbox mode and assumes synthetic/sample
+    # contracts only. For real MSAs, swap to a sanctioned provider (e.g. Falcon).
+    provider = ClaudeProvider()
     assert_data_allowed(provider, contains_real_client_data=False)
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(pdf_bytes)
-        tmp_path = tmp.name
+    tick("Parsing & chunking the contract…", 0.15)
+    chunks = parse_and_chunk(pdf_bytes)
+    if not chunks:
+        raise RuntimeError("No text could be extracted — the PDF may be scanned (needs OCR).")
 
-    try:
-        with st.spinner("📄 Parsing PDF into clause chunks…"):
-            chunks = parse_and_chunk(tmp_path)
-        st.info(f"Found **{len(chunks)}** clause chunks. Starting extraction…")
+    tick(f"Extracting obligations from {len(chunks)} clauses via {provider.name}…", 0.45)
+    obligations = extract_all(chunks, provider)            # map step (provider-agnostic)
+    records = [o.model_dump(mode="json") for o in obligations]
 
-        progress = st.progress(0, text="Extracting obligations…")
-        obligations: List[Obligation] = []
-        for i, chunk in enumerate(chunks):
-            from idp_extraction import extract_obligations_from_chunk
-            obs = extract_obligations_from_chunk(chunk, provider)
-            obligations.extend(obs)
-            progress.progress((i + 1) / len(chunks),
-                              text=f"[{i+1}/{len(chunks)}] {chunk.section_id}: {len(obs)} obligation(s)")
+    tick("Deduplicating & building the checklist…", 0.85)
+    reduced = reduce_obligations(records)                  # reduce step
+    checklist = build_checklist(reduced, filename, count_pages(pdf_bytes))
 
-        progress.empty()
-        return reduce(obligations)
-
-    finally:
-        os.unlink(tmp_path)
+    tick("Done.", 1.0)
+    return checklist
 
 
-def _priority_sort_key(p: str) -> int:
-    return {Priority.HIGH.value: 0, Priority.MEDIUM.value: 1, Priority.LOW.value: 2}.get(p, 9)
-
-
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
 # Sidebar
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
+with st.sidebar:
+    st.markdown(f"### 📄 IDP Agent")
+    st.caption("Master Service Agreement → compliance checklist")
 
-def render_sidebar(obligations: List[Obligation]):
-    """Render filter controls and return filtered list."""
-    st.sidebar.header("🔍 Filters")
+    mode = st.radio("Source", ["Demo dataset", "Upload MSA (live)"], index=0)
 
-    # Priority
-    all_priorities = [Priority.HIGH.value, Priority.MEDIUM.value, Priority.LOW.value]
-    sel_priority = st.sidebar.multiselect(
-        "Priority", all_priorities, default=all_priorities,
-        format_func=lambda p: f"{PRIORITY_COLORS[p]} {p}"
+    data = None
+    if mode == "Demo dataset":
+        data = load_demo()
+    else:
+        up = st.file_uploader("Upload an MSA (PDF)", type=["pdf"])
+        if up is not None:
+            prog = st.progress(0.0, text="Starting…")
+            try:
+                data = run_pipeline(up.read(), up.name, progress=prog)
+                prog.empty()
+                st.success(f"Extracted {len(data['obligations'])} obligations.")
+            except Exception as e:  # keep the demo alive no matter what
+                prog.empty()
+                st.warning(f"Live run unavailable ({e}). Showing the demo dataset.")
+                data = load_demo()
+        else:
+            st.info("Upload a PDF to run the live pipeline, or switch to the demo dataset.")
+            data = load_demo()
+
+    st.divider()
+    st.markdown("**Filters**")
+    obligations_all = data["obligations"]
+    cats = sorted({o["category"] for o in obligations_all})
+    parties = sorted({o["responsible_party"] for o in obligations_all})
+
+    f_priority = st.multiselect("Priority", ["High", "Medium", "Low"], default=["High", "Medium", "Low"])
+    f_category = st.multiselect("Category", cats, default=cats)
+    f_party = st.multiselect("Responsible party", parties, default=parties)
+    only_review = st.checkbox("Only items needing review", value=False)
+    only_open = st.checkbox("Hide completed", value=False)
+
+# --------------------------------------------------------------------------- #
+# Session state for the checklist (mark-complete)
+# --------------------------------------------------------------------------- #
+if "done" not in st.session_state:
+    st.session_state.done = set()
+
+# --------------------------------------------------------------------------- #
+# Header
+# --------------------------------------------------------------------------- #
+st.markdown('<p class="idp-title">Intelligent Document Processing Agent</p>', unsafe_allow_html=True)
+st.markdown(
+    f'<p class="idp-sub">{data["document_name"]} &nbsp;·&nbsp; '
+    f'{data["page_count"]:,} pages &nbsp;·&nbsp; {len(obligations_all)} obligations extracted</p>',
+    unsafe_allow_html=True,
+)
+st.warning(
+    "**Sandbox mode — Claude (sponsored).** Cleared for synthetic / sample contracts only. "
+    "Do not upload real client MSAs here. Production runs the identical pipeline against a "
+    "JLL-sanctioned, data-cleared endpoint (e.g. Falcon) so real contracts stay in the governed envelope.",
+    icon="🔒",
+)
+st.write("")
+
+# --------------------------------------------------------------------------- #
+# Metrics
+# --------------------------------------------------------------------------- #
+high = sum(1 for o in obligations_all if o["priority"] == "High")
+review = sum(1 for o in obligations_all if o.get("needs_review"))
+with_penalty = sum(1 for o in obligations_all if o.get("penalty"))
+done_count = len(st.session_state.done & {o["obligation_id"] for o in obligations_all})
+pct = int(100 * done_count / max(len(obligations_all), 1))
+
+m1, m2, m3, m4, m5, m6 = st.columns(6)
+m1.metric("Obligations", len(obligations_all))
+m2.metric("High priority", high)
+m3.metric("With penalties", with_penalty)
+m4.metric("Needs review", review)
+m5.metric("Completed", f"{done_count}/{len(obligations_all)}")
+m6.metric("Categories", len({o["category"] for o in obligations_all}))
+st.progress(pct, text=f"Checklist {pct}% complete")
+
+# "Cost if missed" — make the financial stakes concrete with real examples
+penalty_examples, seen_p = [], set()
+for o in obligations_all:
+    p = (o.get("penalty") or "").strip()
+    if p and p not in seen_p:
+        seen_p.add(p)
+        penalty_examples.append(p)
+    if len(penalty_examples) >= 3:
+        break
+if with_penalty:
+    items = "".join(
+        f"<li style='margin:2px 0'>{(e[:90] + '…') if len(e) > 90 else e}</li>"
+        for e in penalty_examples
     )
+    st.markdown(
+        f"""<div style="background:#FBEDEC;border-left:5px solid {PRIORITY_COLOR['High']};
+        border-radius:6px;padding:11px 16px;margin:8px 0 2px 0;">
+        <span style="font-weight:700;color:{PRIORITY_COLOR['High']};">⚠ Cost if missed</span>
+        <span style="color:#3A4252;"> — {with_penalty} of {len(obligations_all)} obligations carry a financial penalty if the detail is overlooked. For example:</span>
+        <ul style="margin:6px 0 0 18px;color:#3A4252;font-size:0.88rem;">{items}</ul>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+st.write("")
 
-    # Category
-    all_cats = sorted({ob.category for ob in obligations})
-    sel_cats = st.sidebar.multiselect("Category", all_cats, default=all_cats)
+# --------------------------------------------------------------------------- #
+# Apply filters
+# --------------------------------------------------------------------------- #
+def keep(o):
+    if o["priority"] not in f_priority: return False
+    if o["category"] not in f_category: return False
+    if o["responsible_party"] not in f_party: return False
+    if only_review and not o.get("needs_review"): return False
+    if only_open and o["obligation_id"] in st.session_state.done: return False
+    return True
 
-    # Responsible party
-    all_parties = sorted({ob.responsible_party for ob in obligations})
-    sel_parties = st.sidebar.multiselect("Responsible Party", all_parties, default=all_parties)
+filtered = [o for o in obligations_all if keep(o)]
+filtered.sort(key=lambda o: (PRIORITY_ORDER.get(o["priority"], 9), o["source_section"]))
 
-    # Needs review
-    review_only = st.sidebar.checkbox("⚠️ Needs Review only", value=False)
+# --------------------------------------------------------------------------- #
+# Tabs: checklist + table + export
+# --------------------------------------------------------------------------- #
+tab_list, tab_table, tab_export = st.tabs(["✅ Checklist", "📋 Table", "⬇️ Export"])
 
-    st.sidebar.divider()
-    st.sidebar.caption("JLL Hackathon 2026 · IDP Agent · Daniel Salas Castro")
-
-    # Apply filters
-    filtered = [
-        ob for ob in obligations
-        if ob.priority in sel_priority
-        and ob.category in sel_cats
-        and ob.responsible_party in sel_parties
-        and (not review_only or ob.needs_review)
-    ]
-    return filtered
-
-
-# ---------------------------------------------------------------------------
-# Main checklist table
-# ---------------------------------------------------------------------------
-
-def render_checklist(filtered: List[Obligation]):
-    """Render the main obligation checklist table."""
+with tab_list:
     if not filtered:
-        st.warning("No obligations match the current filters.")
-        return
+        st.info("No obligations match the current filters.")
+    for o in filtered:
+        oid = o["obligation_id"]
+        is_done = oid in st.session_state.done
+        icon = CATEGORY_ICON.get(o["category"], "•")
+        title = f"{icon}  {o['description']}"
+        if o.get("penalty"):
+            pen = o["penalty"]
+            title += f"  ·  💰 {(pen[:46] + '…') if len(pen) > 46 else pen}"
+        if is_done:
+            title = f"~~{title}~~"
 
-    # Summary metrics
-    col1, col2, col3, col4 = st.columns(4)
-    high   = sum(1 for o in filtered if o.priority == Priority.HIGH.value)
-    medium = sum(1 for o in filtered if o.priority == Priority.MEDIUM.value)
-    low    = sum(1 for o in filtered if o.priority == Priority.LOW.value)
-    review = sum(1 for o in filtered if o.needs_review)
+        with st.expander(title, expanded=False):
+            top = st.columns([1, 1, 1, 1])
+            top[0].markdown(pill(o["priority"], PRIORITY_COLOR[o["priority"]]), unsafe_allow_html=True)
+            top[1].markdown(pill(o["category"], BLUE), unsafe_allow_html=True)
+            top[2].markdown(f"**Party:** {o['responsible_party']}")
+            conf = o["confidence"]
+            conf_c = "#2E7D32" if conf >= 0.85 else ("#B9770E" if conf >= 0.70 else "#C0392B")
+            top[3].markdown(f"**Confidence:** <span style='color:{conf_c}'>{conf:.0%}</span>", unsafe_allow_html=True)
 
-    col1.metric("🔴 High",     high)
-    col2.metric("🟡 Medium",   medium)
-    col3.metric("🟢 Low",      low)
-    col4.metric("⚠️ Review",   review)
+            if o.get("needs_review"):
+                st.warning("⚠️ Low confidence — flagged for human review.")
 
-    st.divider()
+            meta = st.columns(3)
+            meta[0].markdown(f"**Trigger:** {o['trigger_type']}")
+            meta[1].markdown(f"**Deadline:** {o['deadline'] or '—'}")
+            meta[2].markdown(f"**Frequency:** {o['frequency'] or '—'}")
+            if o.get("penalty"):
+                st.markdown(
+                    f"<span style='color:{PRIORITY_COLOR['High']};font-weight:700'>⚠️ Penalty if missed:</span> {o['penalty']}",
+                    unsafe_allow_html=True,
+                )
 
-    # Table header
-    hcols = st.columns([1, 1.5, 2, 1, 1.5, 1, 1, 0.8])
-    headers = ["ID", "Section", "Description", "Category", "Party", "Trigger", "Priority", "Review"]
-    for col, h in zip(hcols, headers):
-        col.markdown(f"**{h}**")
-    st.divider()
+            st.markdown("**Source clause** "
+                        f"<span class='src'>(§ {o['source_section']}, page {o['source_page']})</span>",
+                        unsafe_allow_html=True)
+            st.markdown(f'<div class="snippet">"{o["verbatim_snippet"]}"</div>', unsafe_allow_html=True)
 
-    # Rows — clickable via expander
-    for ob in filtered:
-        pri_icon = PRIORITY_COLORS.get(ob.priority, "⚪")
-        review_badge = REVIEW_BADGE if ob.needs_review else ""
+            st.write("")
+            label = "↺ Reopen" if is_done else "✓ Mark complete"
+            if st.button(label, key=f"btn_{oid}"):
+                if is_done:
+                    st.session_state.done.discard(oid)
+                else:
+                    st.session_state.done.add(oid)
+                st.rerun()
 
-        with st.expander(
-            f"{pri_icon} **{ob.obligation_id}** · {ob.source_section} · "
-            f"{ob.description[:80]}{'…' if len(ob.description) > 80 else ''} "
-            f"{review_badge}",
-            expanded=False,
-        ):
-            dcol1, dcol2 = st.columns([1, 1])
+with tab_table:
+    df = pd.DataFrame(filtered)
+    if not df.empty:
+        df["done"] = df["obligation_id"].isin(st.session_state.done)
+        show_cols = ["obligation_id", "priority", "category", "responsible_party",
+                     "description", "penalty", "deadline", "frequency",
+                     "source_section", "source_page", "confidence", "needs_review", "done"]
+        disp = df[show_cols].rename(columns={"penalty": "penalty_if_missed"})
+        st.dataframe(disp, use_container_width=True, hide_index=True)
+    else:
+        st.info("No rows for the current filters.")
 
-            with dcol1:
-                st.markdown("**📋 Obligation Details**")
-                st.markdown(f"- **ID:** `{ob.obligation_id}`")
-                st.markdown(f"- **Section:** {ob.source_section}")
-                st.markdown(f"- **Page:** {ob.source_page}")
-                st.markdown(f"- **Category:** {ob.category}")
-                st.markdown(f"- **Responsible Party:** {ob.responsible_party}")
-                st.markdown(f"- **Trigger:** {ob.trigger_type}")
-                if ob.deadline:
-                    st.markdown(f"- **Deadline:** {ob.deadline}")
-                if ob.frequency:
-                    st.markdown(f"- **Frequency:** {ob.frequency}")
-                if ob.penalty:
-                    st.markdown(f"- **⚠️ Penalty:** {ob.penalty}")
-                st.markdown(f"- **Priority:** {pri_icon} {ob.priority}")
-                st.markdown(f"- **Confidence:** {ob.confidence:.0%}"
-                            + (" ⚠️ *Flagged for review*" if ob.needs_review else ""))
-
-            with dcol2:
-                st.markdown("**📄 Full Description**")
-                st.info(ob.description)
-                st.markdown("**🔗 Verbatim Source**")
-                st.code(ob.verbatim_snippet, language=None)
-
-
-# ---------------------------------------------------------------------------
-# Export section
-# ---------------------------------------------------------------------------
-
-def render_export(filtered: List[Obligation]):
-    """Render Excel and CSV export buttons."""
-    st.subheader("📤 Export")
-    ecol1, ecol2 = st.columns(2)
-
-    df = to_dataframe(filtered)
-    if df is None:
-        st.warning("pandas not installed — export unavailable. `pip install pandas openpyxl`")
-        return
-
-    # CSV
-    with ecol1:
-        csv_data = df.to_csv(index=False).encode("utf-8")
+with tab_export:
+    st.markdown("Export the **filtered** checklist for the CRE team.")
+    df_all = pd.DataFrame(filtered)
+    if not df_all.empty:
+        df_all["status"] = df_all["obligation_id"].apply(
+            lambda x: "Complete" if x in st.session_state.done else "Open"
+        )
+        # Excel (Smartsheet-importable)
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df_all.to_excel(writer, index=False, sheet_name="Obligations")
         st.download_button(
-            label="⬇️ Download CSV",
-            data=csv_data,
-            file_name="obligations.csv",
+            "⬇️ Download Excel (Smartsheet-ready)",
+            data=buf.getvalue(),
+            file_name="msa_obligations_checklist.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        # CSV
+        st.download_button(
+            "⬇️ Download CSV",
+            data=df_all.to_csv(index=False).encode("utf-8"),
+            file_name="msa_obligations_checklist.csv",
             mime="text/csv",
         )
-
-    # Excel
-    with ecol2:
-        import io
-        try:
-            import openpyxl  # noqa: F401
-            buf = io.BytesIO()
-            with __import__("pandas").ExcelWriter(buf, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False, sheet_name="Obligations")
-            st.download_button(
-                label="⬇️ Download Excel",
-                data=buf.getvalue(),
-                file_name="obligations.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        except ImportError:
-            st.info("Install openpyxl for Excel export: `pip install openpyxl`")
-
-
-# ---------------------------------------------------------------------------
-# Main app
-# ---------------------------------------------------------------------------
-
-def main():
-    st.title("📄 IDP Agent — Intelligent Document Processing")
-    st.caption("JLL Hackathon 2026 · Automated MSA Obligation Extraction")
-
-    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-
-    # --- Mode selector ---
-    mode = st.radio(
-        "Mode",
-        options=["🎬 Demo (no API key)", "🚀 Live (upload PDF)"],
-        horizontal=True,
-        disabled=not has_api_key and False,  # demo always available
-    )
-
-    obligations: List[Obligation] = []
-
-    # -----------------------------------------------------------------------
-    # DEMO MODE
-    # -----------------------------------------------------------------------
-    if mode == "🎬 Demo (no API key)":
-        st.info(
-            "Running in **demo mode** — using cached synthetic obligations. "
-            "No API key or PDF required.",
-            icon="ℹ️",
-        )
-        obligations = _load_demo_obligations()
-        if obligations:
-            st.success(f"Loaded **{len(obligations)}** synthetic obligations from demo dataset.")
-
-    # -----------------------------------------------------------------------
-    # LIVE MODE
-    # -----------------------------------------------------------------------
+        st.caption(f"{len(df_all)} obligations in current export (after filters).")
     else:
-        if not has_api_key:
-            st.error(
-                "⚠️ `ANTHROPIC_API_KEY` environment variable not set. "
-                "Set it and restart the app to use live mode.",
-                icon="🔐",
-            )
-            st.stop()
-
-        st.warning(
-            "⚠️ **Sandbox mode — synthetic/sample PDFs only.** "
-            "Do NOT upload real client MSAs. The governance guard will block it.",
-            icon="🔒",
-        )
-
-        uploaded = st.file_uploader(
-            "Upload MSA PDF (text-based, synthetic/sample only)",
-            type=["pdf"],
-            help="Scanned PDFs require Azure OCR — see README.",
-        )
-
-        if uploaded:
-            if st.button("🚀 Extract Obligations", type="primary"):
-                try:
-                    obligations = _run_live_pipeline(uploaded.read(), uploaded.name)
-                    st.success(f"✅ Extracted **{len(obligations)}** obligations.")
-                    # Cache in session so filters don't re-run the pipeline
-                    st.session_state["live_obligations"] = obligations
-                except PermissionError as e:
-                    st.error(f"🔒 Governance block: {e}")
-                except Exception as e:
-                    st.error(f"Pipeline error: {e}")
-                    st.info("Falling back to demo dataset…")
-                    obligations = _load_demo_obligations()
-
-        elif "live_obligations" in st.session_state:
-            obligations = st.session_state["live_obligations"]
-
-    # -----------------------------------------------------------------------
-    # CHECKLIST (shared by both modes)
-    # -----------------------------------------------------------------------
-    if obligations:
-        st.divider()
-        filtered = render_sidebar(obligations)
-        st.subheader(f"📋 Obligation Checklist ({len(filtered)} of {len(obligations)})")
-        render_checklist(filtered)
-        st.divider()
-        render_export(filtered)
-    else:
-        st.info("Upload a PDF and click **Extract Obligations** to begin, or switch to Demo mode.")
-
-
-if __name__ == "__main__":
-    main()
+        st.info("Nothing to export with the current filters.")
