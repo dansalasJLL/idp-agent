@@ -125,16 +125,6 @@ def run_pipeline(pdf_bytes: bytes, filename: str, progress=None) -> dict:
 # --------------------------------------------------------------------------- #
 # Sidebar
 # --------------------------------------------------------------------------- #
-with st.sidebar:
-    st.markdown(f"### 📄 IDP Agent")
-    st.caption("Master Service Agreement → compliance checklist")
-
-    mode = st.radio("Source", ["Demo dataset", "Upload MSA (live)"], index=0)
-
-    data = None
-    if mode == "Demo dataset":
-        data = load_demo()
-
 DEMO_MSA_FILES = {
     "Fake_MSA_Demo_Long.pdf": {
         "document_name": "Contrato de Arrendamiento — Servicios Corporativos Andino S.A.",
@@ -149,8 +139,10 @@ DEMO_MSA_FILES = {
         "page_count": 52,
     },
 }
-
 with st.sidebar:
+    st.markdown(f"### 📄 IDP Agent")
+    st.caption("Master Service Agreement → compliance checklist")
+
     mode = st.radio("Source", ["Demo dataset", "Upload MSA (live)"], index=0)
 
     data = None
