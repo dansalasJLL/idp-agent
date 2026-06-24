@@ -217,7 +217,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.warning(
-    "**Sandbox mode — Claude (sponsored).** Cleared for synthetic / sample contracts only. "
+    "**Sandbox mode — Demo data.** Cleared for synthetic / sample contracts only. "
     "Do not upload real client MSAs here. Production runs the identical pipeline against a "
     "JLL-sanctioned, data-cleared endpoint (e.g. Falcon) so real contracts stay in the governed envelope.",
     icon="🔒",
