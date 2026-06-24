@@ -346,7 +346,7 @@ with tab_list:
                 )
 
             st.markdown("**Source clause** "
-                        f"<span class='src'>(§ {o['source_section']}, page {o['source_page']})</span>",
+                        f"<span class='src'>(§ {o.get('source_section', o.get('source_clause', 'N/A'))[:60]}, page {o.get('source_page', o.get('page_number', 'N/A'))})</span>",
                         unsafe_allow_html=True)
             st.markdown(f'<div class="snippet">"{o["verbatim_snippet"]}"</div>', unsafe_allow_html=True)
 
