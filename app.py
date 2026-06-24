@@ -208,9 +208,12 @@ if "done" not in st.session_state:
 # Header
 # --------------------------------------------------------------------------- #
 st.markdown('<p class="idp-title">Intelligent Document Processing Agent</p>', unsafe_allow_html=True)
+st.markdown('<p class="idp-title">Intelligent Document Processing Agent</p>', unsafe_allow_html=True)
+doc_name = data.get("document_name", "Sample MSA — Apex Properties Group (demo).pdf") if isinstance(data, dict) else "Sample MSA — Apex Properties Group (demo).pdf"
+page_count = data.get("page_count", 1184) if isinstance(data, dict) else 1184
 st.markdown(
-    f'<p class="idp-sub">{data["document_name"]} &nbsp;&nbsp; '
-    f'{data["page_count"]} pages · {len(obligations_all)} obligations extracted</p>',
+    f'<p class="idp-sub">{doc_name} &nbsp;&nbsp; '
+    f'{page_count} pages · {len(obligations_all)} obligations extracted</p>',
     unsafe_allow_html=True,
 )
 st.warning(
