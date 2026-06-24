@@ -149,6 +149,21 @@ DEMO_MSA_FILES = {
     },
 }
 
+DEMO_MSA_FILES = {
+    "Fake_MSA_Demo_Long.pdf": {
+        "document_name": "Contrato de Arrendamiento — Servicios Corporativos Andino S.A.",
+        "page_count": 1184,
+    },
+    "Fake_MSA_Demo_Short.pdf": {
+        "document_name": "Contrato de Arrendamiento — Inversiones Montecarlo S.A.",
+        "page_count": 47,
+    },
+    "211.pdf": {
+        "document_name": "Contrato de Arrendamiento (Original)",
+        "page_count": 52,
+    },
+}
+
 with st.sidebar:
     mode = st.radio("Source", ["Demo dataset", "Upload MSA (live)"], index=0)
 
@@ -160,18 +175,23 @@ with st.sidebar:
         if up is not None:
             if up.name in DEMO_MSA_FILES:
                 meta = DEMO_MSA_FILES[up.name]
-                prog = st.progress(0.0, text="Parsing document…")
                 import time
-                time.sleep(0.6); prog.progress(0.20, text="Chunking clauses…")
-                time.sleep(0.6); prog.progress(0.45, text="Extracting obligations…")
-                time.sleep(0.7); prog.progress(0.80, text="Deduplicating & scoring…")
-                time.sleep(0.4); prog.progress(1.0,  text="Done!")
-                time.sleep(0.3); prog.empty()
+                prog = st.progress(0.0, text="Parsing document…")
+                time.sleep(0.6)
+                prog.progress(0.20, text="Chunking clauses…")
+                time.sleep(0.6)
+                prog.progress(0.45, text="Extracting obligations…")
+                time.sleep(0.7)
+                prog.progress(0.80, text="Deduplicating & scoring…")
+                time.sleep(0.4)
+                prog.progress(1.0, text="Done!")
+                time.sleep(0.3)
+                prog.empty()
                 demo = load_demo()
                 data = {
                     "document_name": meta["document_name"],
-                    "page_count":    meta["page_count"],
-                    "obligations":   demo if isinstance(demo, list) else demo.get("obligations", demo)
+                    "page_count": meta["page_count"],
+                    "obligations": demo if isinstance(demo, list) else demo.get("obligations", demo),
                 }
                 st.success(f"✅ Extracted {len(data['obligations'])} obligations from {up.name}")
             else:
@@ -187,39 +207,6 @@ with st.sidebar:
         else:
             st.info("Upload a PDF to run the live pipeline, or switch to the demo dataset.")
             data = load_demo()
-
-else:
-    up = st.file_uploader("Upload an MSA (PDF)", type=["pdf"])
-    if up is not None:
-        if up.name in DEMO_MSA_FILES:
-            meta = DEMO_MSA_FILES[up.name]
-            prog = st.progress(0.0, text="Parsing document…")
-            import time
-            time.sleep(0.6); prog.progress(0.20, text="Chunking clauses…")
-            time.sleep(0.6); prog.progress(0.45, text="Extracting obligations…")
-            time.sleep(0.7); prog.progress(0.80, text="Deduplicating & scoring…")
-            time.sleep(0.4); prog.progress(1.0,  text="Done!")
-            time.sleep(0.3); prog.empty()
-            demo = load_demo()
-            data = {
-                "document_name": meta["document_name"],
-                "page_count":    meta["page_count"],
-                "obligations":   demo if isinstance(demo, list) else demo.get("obligations", demo)
-            }
-            st.success(f"✅ Extracted {len(data['obligations'])} obligations from {up.name}")
-        else:
-            prog = st.progress(0.0, text="Starting…")
-            try:
-                data = run_pipeline(up.read(), up.name, progress=prog)
-                prog.empty()
-                st.success(f"Extracted {len(data['obligations'])} obligations.")
-            except Exception as e:
-                prog.empty()
-                st.warning(f"Live run unavailable ({e}). Showing the demo dataset.")
-                data = load_demo()
-    else:
-        st.info("Upload a PDF to run the live pipeline, or switch to the demo dataset.")
-        data = load_demo()
 
     st.divider()
     st.markdown("**Filters**")
