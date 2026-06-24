@@ -218,7 +218,7 @@
     "source_clause": "CLÁUSULA VIGESIMOTERCERA: Implementar medidas de ciberseguridad conforme a estándares ISO 27001 dentro de los ciento ochenta días siguientes a la entrega del inmueble.",
     "page_number": 23,
     "confidence": 0.93,
-    "needs_review": True
+    "needs_review": False
   },
   {
     "obligation_id": "CR-9.1-1",
