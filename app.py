@@ -336,8 +336,7 @@ with tab_list:
                 st.warning("⚠️ Low confidence — flagged for human review.")
 
             meta = st.columns(3)
-            meta[0].markdown(f"**Trigger:** {o['trigger_type']}")
-            meta[1].markdown(f"**Deadline:** {o['deadline'] or '—'}")
+            meta[0].markdown(f"**Trigger:** {o.get('trigger_type', o.get('due_date', 'N/A'))}")            meta[1].markdown(f"**Deadline:** {o['deadline'] or '—'}")
             meta[2].markdown(f"**Frequency:** {o['frequency'] or '—'}")
             if o.get("penalty"):
                 st.markdown(
