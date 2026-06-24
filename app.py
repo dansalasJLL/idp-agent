@@ -72,9 +72,10 @@ def pill(text, color):
 # Data loading
 # --------------------------------------------------------------------------- #
 @st.cache_data
-def load_demo():
-    with open(DEMO_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_demo(filename="demo_obligations.json"):
+    with open(filename) as f:
+        data = json.load(f)
+    return data if isinstance(data, list) else data.get("obligations", data)
 
 
 def run_pipeline(pdf_bytes: bytes, filename: str, progress=None) -> dict:
@@ -129,14 +130,17 @@ DEMO_MSA_FILES = {
     "Fake_MSA_Demo_Long.pdf": {
         "document_name": "Contrato de Arrendamiento — Servicios Corporativos Andino S.A.",
         "page_count": 1184,
+        "obligations_file": "demo_obligations_cr.json",
     },
     "Fake_MSA_Demo_Short.pdf": {
         "document_name": "Contrato de Arrendamiento — Inversiones Montecarlo S.A.",
         "page_count": 47,
+        "obligations_file": "demo_obligations_cr.json",
     },
     "211.pdf": {
         "document_name": "Contrato de Arrendamiento (Original)",
         "page_count": 52,
+        "obligations_file": "demo_obligations_cr.json",
     },
 }
 with st.sidebar:
@@ -146,8 +150,28 @@ with st.sidebar:
     mode = st.radio("Source", ["Demo dataset", "Upload MSA (live)"], index=0)
 
     data = None
-    if mode == "Demo dataset":
-        data = load_demo()
+        if mode == "Demo dataset":
+            demo_contract = st.selectbox(
+                "Select demo contract",
+                [
+                    "Apex Properties Group MSA (English)",
+                    "Contrato Andino S.A. — Costa Rica (Spanish)",
+                    "Meridian Office Partners — US Lease (English)",
+                ],
+                index=0,
+            )
+            demo_file_map = {
+                "Apex Properties Group MSA (English)": ("demo_obligations.json", "Sample MSA — Apex Properties Group (demo).pdf", 1184),
+                "Contrato Andino S.A. — Costa Rica (Spanish)": ("demo_obligations_cr.json", "Contrato de Arrendamiento — Servicios Corporativos Andino S.A.", 847),
+                "Meridian Office Partners — US Lease (English)": ("demo_obligations_us.json", "Meridian Office Partners — Commercial Lease Agreement", 312),
+            }
+            selected_file, selected_name, selected_pages = demo_file_map[demo_contract]
+            raw = load_demo(selected_file)
+            data = {
+                "document_name": selected_name,
+                "page_count": selected_pages,
+                "obligations": raw,
+            }
     else:
         up = st.file_uploader("Upload an MSA (PDF)", type=["pdf"])
         if up is not None:
@@ -165,7 +189,7 @@ with st.sidebar:
                 prog.progress(1.0, text="Done!")
                 time.sleep(0.3)
                 prog.empty()
-                demo = load_demo()
+                demo = load_demo(meta.get("obligations_file", "demo_obligations.json"))
                 data = {
                     "document_name": meta["document_name"],
                     "page_count": meta["page_count"],
