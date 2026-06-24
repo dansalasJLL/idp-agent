@@ -150,7 +150,7 @@ with st.sidebar:
     mode = st.radio("Source", ["Demo dataset", "Upload MSA (live)"], index=0)
 
     data = None
-        if mode == "Demo dataset":
+    if mode == "Demo dataset":
             demo_contract = st.selectbox(
                 "Select demo contract",
                 [
