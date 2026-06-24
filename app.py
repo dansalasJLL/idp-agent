@@ -303,8 +303,7 @@ def keep(o):
     return True
 
 filtered = [o for o in obligations_all if keep(o)]
-filtered.sort(key=lambda o: (PRIORITY_ORDER.get(o["priority"], 9), o["source_section"]))
-
+filtered.sort(key=lambda o: (PRIORITY_ORDER.get(o["priority"], 9), o.get("source_section", o.get("source_clause", ""))))
 # --------------------------------------------------------------------------- #
 # Tabs: checklist + table + export
 # --------------------------------------------------------------------------- #
