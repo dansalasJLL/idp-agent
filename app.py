@@ -134,20 +134,6 @@ with st.sidebar:
     data = None
     if mode == "Demo dataset":
         data = load_demo()
-DEMO_MSA_FILES = {
-    "Fake_MSA_Demo_Long.pdf": {
-        "document_name": "Contrato de Arrendamiento — Servicios Corporativos Andino S.A.",
-        "page_count": 1184,
-    },
-    "Fake_MSA_Demo_Short.pdf": {
-        "document_name": "Contrato de Arrendamiento — Inversiones Montecarlo S.A.",
-        "page_count": 47,
-    },
-    "211.pdf": {
-        "document_name": "Contrato de Arrendamiento (Original)",
-        "page_count": 52,
-    },
-}
 
 DEMO_MSA_FILES = {
     "Fake_MSA_Demo_Long.pdf": {
