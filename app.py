@@ -337,7 +337,7 @@ with tab_list:
 
             meta = st.columns(3)
             meta[0].markdown(f"**Trigger:** {o.get('trigger_type', o.get('due_date', 'N/A'))}")            
-            meta[1].markdown(f"**Deadline:** {o.get('deadline', o.get('due_date', '—')) or '—'}")            
+            meta[1].markdown(f"**Deadline:** {o.get('deadline', o.get('due_date', '—')) or '—'}")
             meta[2].markdown(f"**Frequency:** {o.get('frequency', '—') or '—'}")
             if o.get("penalty"):
                 st.markdown(
