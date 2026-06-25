@@ -274,7 +274,7 @@ if p and p not in seen_p:
     seen_p.add(p)
     penalty_examples.append(p)
 if len(penalty_examples) >= 3:
-    break
+break
 if with_penalty:
     items = "".join(
     f"<li style='margin:2px 0'>{(e[:90] + '…') if len(e) > 90 else e}</li>"
