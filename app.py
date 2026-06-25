@@ -266,7 +266,7 @@ m5.metric("Completed", f"{done_count}/{len(obligations_all)}")
 m6.metric("Categories", len({o["category"] for o in obligations_all}))
 st.progress(pct, text=f"Checklist {pct}% complete")
 
-# "Cost if missed" — make the financial stakes concrete with real examples
+        # "Cost if missed" — make the financial stakes concrete with real examples
         penalty_examples, seen_p = [], set()
         for o in obligations_all:
             p = (o.get("penalty_if_missed") or o.get("penalty") or "").strip()
@@ -281,12 +281,10 @@ st.progress(pct, text=f"Checklist {pct}% complete")
                 for e in penalty_examples
             )
             st.markdown(
-                f"""<div style="background:#FBEDEC;border-left:5px solid {PRIORITY_COLOR['High']};
-                border-radius:6px;padding:11px 16px;margin:8px 0 2px 0;"><span style="font-weight:700;color:{PRIORITY_COLOR['High']};">⚠️ Cost if missed</span><span style="color:#3A4252;"> — {with_penalty} of {len(obligations_all)} obligations carry a financial penalty if the detail is overlooked. For example:</span><ul style="margin:6px 0 0 18px;color:#3A4252;font-size:0.88rem;">{items}</ul></div>""",
+                f"""<div style="background:#FBEDEC;border-left:5px solid {PRIORITY_COLOR['High']};border-radius:6px;padding:11px 16px;margin:8px 0 2px 0;"><span style="font-weight:700;color:{PRIORITY_COLOR['High']};">⚠️ Cost if missed</span><span style="color:#3A4252;"> — {with_penalty} of {len(obligations_all)} obligations carry a financial penalty if the detail is overlooked. For example:</span><ul style="margin:6px 0 0 18px;color:#3A4252;font-size:0.88rem;">{items}</ul></div>""",
                 unsafe_allow_html=True,
             )
         st.write("")
-
 # --------------------------------------------------------------------------- #
 # Apply filters
 # --------------------------------------------------------------------------- #
