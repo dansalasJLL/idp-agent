@@ -253,7 +253,7 @@ st.write("")
 # --------------------------------------------------------------------------- #
 high = sum(1 for o in obligations_all if o["priority"] == "High")
 review = sum(1 for o in obligations_all if o.get("needs_review"))
-with_penalty = sum(1 for o in obligations_all if o.get("penalty"))
+with_penalty = sum(1 for o in obligations_all if o.get("penalty_if_missed") or o.get("penalty"))
 done_count = len(st.session_state.done & {o["obligation_id"] for o in obligations_all})
 pct = int(100 * done_count / max(len(obligations_all), 1))
 
