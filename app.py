@@ -267,8 +267,8 @@ m6.metric("Categories", len({o["category"] for o in obligations_all}))
 st.progress(pct, text=f"Checklist {pct}% complete")
 
         # "Cost if missed" — make the financial stakes concrete with real examples
-            penalty_examples, seen_p = [], set()
-for o in obligations_all:
+        penalty_examples, seen_p = [], set()
+        for o in obligations_all:
             p = (o.get("penalty_if_missed") or o.get("penalty") or "").strip()
             if p and p not in seen_p:
                 seen_p.add(p)
