@@ -142,6 +142,11 @@ DEMO_MSA_FILES = {
         "page_count": 52,
         "obligations_file": "demo_obligations_cr.json",
     },
+    "PLANETORG LLC MASTER SERVICES AGREEMENT 1.pdf": {
+    "document_name": "PlanetOrg LLC — Master Services Agreement",
+    "page_count": 200,
+    "obligations_file": "demo_obligations_planetorg.json",
+},
 }
 with st.sidebar:
     st.markdown(f"### 📄 IDP Agent")
@@ -155,6 +160,7 @@ with st.sidebar:
                 "Select demo contract",
                 [
                     "Apex Properties Group MSA (English)",
+                    "PlanetOrg LLC MSA — Enterprise Services (EN)",
                     "Contrato Andino S.A. — Costa Rica (Spanish)",
                     "Meridian Office Partners — US Lease (English)",
                 ],
@@ -162,6 +168,7 @@ with st.sidebar:
             )
             demo_file_map = {
                 "Apex Properties Group MSA (English)": ("demo_obligations.json", "Sample MSA — Apex Properties Group (demo).pdf", 1184),
+                "PlanetOrg LLC MSA — Enterprise Services (EN)": ("demo_obligations_planetorg.json", "PlanetOrg LLC — Master Services Agreement", 200),
                 "Contrato Andino S.A. — Costa Rica (Spanish)": ("demo_obligations_cr.json", "Contrato de Arrendamiento — Servicios Corporativos Andino S.A.", 847),
                 "Meridian Office Partners — US Lease (English)": ("demo_obligations_us.json", "Meridian Office Partners — Commercial Lease Agreement", 312),
             }
