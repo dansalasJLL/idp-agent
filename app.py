@@ -359,18 +359,19 @@ with tab_list:
                     st.session_state.done.add(oid)
                 st.rerun()
 
-with tab_table:
-    df = pd.DataFrame(filtered)
+        with tab_table:
+            df = pd.DataFrame(filtered)
             if not df.empty:
-            df["done"] = df["obligation_id"].isin(st.session_state.done)
-            penalty_col = "penalty_if_missed" if "penalty_if_missed" in df.columns else "penalty"
-            show_cols = ["obligation_id", "priority", "category", "responsible_party",
-                         "description", penalty_col, "deadline", "frequency",
-                         "source_section", "source_page", "confidence", "needs_review", "done"]
-            disp = df[show_cols].rename(columns={"penalty": "penalty_if_missed"}) if "penalty" in df.columns else df[show_cols]
-            st.dataframe(disp, use_container_width=True, hide_index=True)
-        else:
-            st.info("No rows for the current filters.")
+                df["done"] = df["obligation_id"].isin(st.session_state.done)
+                penalty_col = "penalty_if_missed" if "penalty_if_missed" in df.columns else "penalty"
+                show_cols = ["obligation_id", "priority", "category", "responsible_party",
+                             "description", penalty_col, "deadline", "frequency",
+                             "source_section", "source_page", "confidence", "needs_review", "done"]
+                show_cols = [c for c in show_cols if c in df.columns]
+                disp = df[show_cols].rename(columns={"penalty": "penalty_if_missed"})
+                st.dataframe(disp, use_container_width=True, hide_index=True)
+            else:
+                st.info("No rows for the current filters.")
 with tab_export:
     st.markdown("Export the **filtered** checklist for the CRE team.")
     df_all = pd.DataFrame(filtered)
